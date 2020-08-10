@@ -1,0 +1,163 @@
+---
+title: "Practicial Machine Learning Project"
+author: "Arnout van der Meijden"
+date: "8/10/2020"
+output: html_document
+---
+
+## Machine learning assignment
+
+For this assignment we use the Weight Lifting Exercises Dataset
+(More info about the data is available at http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell
+Biceps Curl in five different fashions: 
+exactly according to the specification (Class A), 
+throwing the elbows to the front (Class B),
+lifting the dumbbell only halfway (Class C), 
+lowering the dumbbell only halfway (Class D) 
+and throwing the hips to the front (Class E).
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+ 
+The goal of this project is to predict the manner in which they did the exercise (the testset)
+ 
+First load the data
+```{r, setup, warning=FALSE, message=FALSE}
+```
+
+```{r}
+training <- read.csv2("pml-training.csv", sep=",",na.strings = c("NA","NaN","","#DIV/0!"))
+testing <- read.csv2("pml-testing.csv", sep="," ,na.strings = c("NA","NaN","","#DIV/0!"))
+```
+
+Look at this data
+We got 19622 observations of 160 variables.
+First step would be to reduce the number of variables.
+If we have more than 50% of na's in a column then remove this columns.
+
+```{r} 
+training2 <- training[ , colSums(is.na(training)) <nrow(training)*0.5]
+```
+
+No we only got 60 variables left. Let's do some exploratory analysis using graphs.
+
+```{r echo=FALSE}
+library(dplyr)
+training2b <-  select(training2, -c(1,2,3,4,5,6,7))
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(data=training2b, aes(gyros_arm_x,magnet_arm_x))+
+  geom_point(aes(color=classe))
+```
+
+I couldn't find any meaningfull plot. The only conclusion for me was that I needed to trim down the number of predictors. Next steps, see if any variables have no variance and find the predictors which are highly correlated. 
+
+To be able to calculate the variance and correlation factor I first need to make the factor variables numeric.
+```{r message=FALSE}
+training2f <- training2b[,-53] %>%
+  select_if(is.factor)
+
+library(tidyverse)
+training2nf <- training2b %>%
+  select_if(negate(is.factor))
+
+## Convert all columns to numeric of a dataset with only factors
+training2fn <- lapply(training2f, function(x) as.numeric(levels(x))[x])
+
+## Combine these datasets to get a dataset with all numeric values (except of course classe)
+training3 <- cbind(training2nf, training2fn, training2b$classe)
+
+colnames(training3)[53] <- "classe"
+```
+
+Let's see if we have some variables with no variance
+```{r message=FALSE}
+library(caret)
+nearZeroVar(training3[,-53], saveMetrics = TRUE) ## No Trues
+```
+
+No variables with zero or near zero variance
+
+```{r}
+PCA <- abs(cor(training3[,-53]))
+diag(PCA) <- 0 ## Diagnols always have 1 (because it always correlates with itself)
+nearzerovariance <- which(PCA > 0.75, arr.ind=T) ## Get's 48 results
+head(nearzerovariance) ## Let's look at the first results
+```
+A lot of variables which are highly correlated (>0,75). So we only need one of these two correlated predictors. We will keep the variable which has the highest correlation with classe.
+
+To know which predictor has the highest correlation with classe, let's create a graph wich shows the correlation of these predictors with classe. 
+
+```{r}
+training4 <- training3
+training4$classe <- as.numeric(training4$classe)
+```
+
+
+```{r}
+Classe <- training4$classe
+feature <- names(training4)
+
+corrClasse <- data.frame(feature = feature, coef = rep(NA, length(feature)))
+for (iFeature in 1:length(feature)){
+  corrClasse$coef[iFeature] <- cor(training4[, iFeature], Classe)
+}
+
+# sort by correlation coefficient
+corrClasseOrder <- corrClasse[order(corrClasse$coef, decreasing = FALSE), ]
+
+## Make the plot
+ggplot(corrClasseOrder, aes(x = factor(feature, levels = feature), y = coef)) + 
+  geom_bar(stat = "identity") + 
+  coord_flip() + 
+  xlab("Feature") + 
+  ylab("Correlation Coefficient")
+```
+
+Comparing which predictor has the highest correlation with Classe, we keep that one and remove the other predictor, 18 variabels are removed. 
+
+```{r}
+training5 <- select(training4, -c(4, 26, 3, 10, 28, 2, 7, 13, 11, 17, 39, 40, 20, 23, 27, 35, 41, 50))
+```
+
+Let's see if we can make a nice decision tree
+```{r, warning=FALSE}
+training51 <- select(training5, -c(35))
+training52 <- cbind(training51, training$classe)
+colnames(training52)[35] <- "classe"
+
+library(caret)
+modfit1c <-  train(classe ~., data = training52, method="rpart") 
+rattle::fancyRpartPlot(modfit1c$finalModel)
+print(modfit1c$finalModel)
+```
+
+Accuracy of this model is only about 50%. But we have some great features -> pitch_forearm < -35 -> then it is an A
+And we get 81% E if magnet_belt_y > 556. All the others branches are not so good.
+So let's try to improve the accuracy by using bagging with cross validation (as requested in the assignment). In this case I have used 10 fold cross validation to get hopefully a high accuracy. 
+Metric is Accuracy because it is a classification problem. Why not use Kappa? Kappa is a more usefull measure to use on problems that have an imbalance in the classes. Which in this case we don't have. 
+(https://machinelearningmastery.com/machine-learning-evaluation-metrics-in-r/)
+RMSE and R^2 are default metrics used to evaluate algorithms on regession datasets but we have a classification dataset so we don't use these measures. 
+Area under ROC curve metrix are only suitable for binary classification problems (two classes)
+
+
+```{r echo=FALSE}
+set.seed(5634)
+library(e1071)
+library(ipred)
+trCtrl <- trainControl(method = "cv", number = 10) ## k-fold Cross Validation
+modfitbag1 <- train(classe ~., data = training52, method="treebag", trControl=trCtrl, metric="Accuracy") 
+```
+
+
+print(modfitbag1$finalModel)
+results = confusionMatrix(training52$classe, modfitbag1)
+print(results)
+
+The accuraracy of this model is about 98%, on the trainset of course.
+This means we could be overfitting but I expect the accurracy on the testset should be about 95%. Which means that this model will probably have 1 of the 20 wrong. 
+I haven't split the trainingset to get a more accurate out of sample error. 
