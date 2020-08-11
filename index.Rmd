@@ -42,7 +42,7 @@ training2 <- training[ , colSums(is.na(training)) <nrow(training)*0.5]
 
 No we only got 60 variables left. Let's do some exploratory analysis using graphs.
 
-```{r echo=FALSE}
+```{r echo=FALSE, warning=FALSE, message=FALSE}
 library(dplyr)
 training2b <-  select(training2, -c(1,2,3,4,5,6,7))
 ```
@@ -133,30 +133,25 @@ colnames(training52)[35] <- "classe"
 library(caret)
 modfit1c <-  train(classe ~., data = training52, method="rpart") 
 rattle::fancyRpartPlot(modfit1c$finalModel)
-print(modfit1c$finalModel)
+print(modfit1c$results)
 ```
 
 Accuracy of this model is only about 50%. But we have some great features -> pitch_forearm < -35 -> then it is an A
 And we get 81% E if magnet_belt_y > 556. All the others branches are not so good.
 So let's try to improve the accuracy by using bagging with cross validation (as requested in the assignment). In this case I have used 10 fold cross validation to get hopefully a high accuracy. 
 Metric is Accuracy because it is a classification problem. Why not use Kappa? Kappa is a more usefull measure to use on problems that have an imbalance in the classes. Which in this case we don't have. 
-(https://machinelearningmastery.com/machine-learning-evaluation-metrics-in-r/)
 RMSE and R^2 are default metrics used to evaluate algorithms on regession datasets but we have a classification dataset so we don't use these measures. 
 Area under ROC curve metrix are only suitable for binary classification problems (two classes)
 
 
-```{r echo=FALSE}
-set.seed(5634)
+```{r, warning=FALSE}
 library(e1071)
 library(ipred)
 trCtrl <- trainControl(method = "cv", number = 10) ## k-fold Cross Validation
 modfitbag1 <- train(classe ~., data = training52, method="treebag", trControl=trCtrl, metric="Accuracy") 
+print(modfitbag1$results)
 ```
 
-
-print(modfitbag1$finalModel)
-results = confusionMatrix(training52$classe, modfitbag1)
-print(results)
 
 The accuraracy of this model is about 98%, on the trainset of course.
 This means we could be overfitting but I expect the accurracy on the testset should be about 95%. Which means that this model will probably have 1 of the 20 wrong. 
