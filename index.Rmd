@@ -1,27 +1,30 @@
 ---
 title: "Practicial Machine Learning Project"
 author: "Arnout van der Meijden"
-date: "8/10/2020"
+date: "8/13/2020"
 output: html_document
 ---
 
 ## Machine learning assignment
 
+### Synopsis
 For this assignment we use the Weight Lifting Exercises Dataset
-(More info about the data is available at http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+(More info about the data is available at http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. This research was performed by: Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
 
-
-Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell
-Biceps Curl in five different fashions: 
+In this research six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: 
 exactly according to the specification (Class A), 
 throwing the elbows to the front (Class B),
 lifting the dumbbell only halfway (Class C), 
 lowering the dumbbell only halfway (Class D) 
 and throwing the hips to the front (Class E).
-In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+In this project, we will use the data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
  
-The goal of this project is to predict the manner in which they did the exercise (the testset)
- 
+The goal of this project is to predict the manner in which they did the exercise provided in the testset.
+
+Conclusion
+By reducing the number of variables we could a model using cross validation and bagging that has an accuraracy of about 98% on the trainingset. 
+
+### Data
 First load the data
 ```{r, setup, warning=FALSE, message=FALSE}
 ```
@@ -31,16 +34,13 @@ training <- read.csv2("pml-training.csv", sep=",",na.strings = c("NA","NaN","","
 testing <- read.csv2("pml-testing.csv", sep="," ,na.strings = c("NA","NaN","","#DIV/0!"))
 ```
 
-Look at this data
-We got 19622 observations of 160 variables.
-First step would be to reduce the number of variables.
-If we have more than 50% of na's in a column then remove this columns.
+The training set consists of 19622 observations of 160 variables. The logical next step is to reduce the number of variables. Not being an expert on weightlifting or data from accelerometers I have no obvious candidates so I will just follow the 'normal' prodedure and that is removing variables which have more than 50% of NA's. Imputting data if more than 50% is not available will probably lead to a algorithm which will not perform well on the testset or other data. 
 
 ```{r} 
 training2 <- training[ , colSums(is.na(training)) <nrow(training)*0.5]
 ```
 
-No we only got 60 variables left. Let's do some exploratory analysis using graphs.
+It seems we got a lot of variables with more than 50% of NA's. We only have 60 variables left. Let's do some exploratory analysis using graphs on these diminished set. 
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
 library(dplyr)
@@ -54,7 +54,7 @@ ggplot(data=training2b, aes(gyros_arm_x,magnet_arm_x))+
   geom_point(aes(color=classe))
 ```
 
-I couldn't find any meaningfull plot. The only conclusion for me was that I needed to trim down the number of predictors. Next steps, see if any variables have no variance and find the predictors which are highly correlated. 
+I couldn't find any meaningfull plot. The only conclusion for me was that I needed to trim down the number of predictors. Next step in this reduction phase is to remove any variables which have no variance and remove that. After that I want to find the predictors which are highly correlated. 
 
 To be able to calculate the variance and correlation factor I first need to make the factor variables numeric.
 ```{r message=FALSE}
@@ -77,10 +77,10 @@ colnames(training3)[53] <- "classe"
 Let's see if we have some variables with no variance
 ```{r message=FALSE}
 library(caret)
-nearZeroVar(training3[,-53], saveMetrics = TRUE) ## No Trues
+nearZeroVar(training3[,-53], saveMetrics = TRUE)
 ```
 
-No variables with zero or near zero variance
+No variables with zero or near zero variance so still the same amount of variables. Next find the predictors which are highly correlated. 
 
 ```{r}
 PCA <- abs(cor(training3[,-53]))
@@ -124,6 +124,8 @@ Comparing which predictor has the highest correlation with Classe, we keep that 
 training5 <- select(training4, -c(4, 26, 3, 10, 28, 2, 7, 13, 11, 17, 39, 40, 20, 23, 27, 35, 41, 50))
 ```
 
+### Building models
+
 Let's see if we can make a nice decision tree
 ```{r, warning=FALSE}
 training51 <- select(training5, -c(35))
@@ -138,11 +140,13 @@ print(modfit1c$results)
 
 Accuracy of this model is only about 50%. But we have some great features -> pitch_forearm < -35 -> then it is an A
 And we get 81% E if magnet_belt_y > 556. All the others branches are not so good.
-So let's try to improve the accuracy by using bagging with cross validation (as requested in the assignment). In this case I have used 10 fold cross validation to get hopefully a high accuracy. 
+
+### Cross validation
+So let's try to improve the accuracy by using bagging with cross validation (as requested in the assignment). The basis idea behind cross validation is to divide the data in multiple sets. So I train the model using bagging (boostrap aggregating) which is also about taking the data and take resamples of the data, recalculate the prediction, repeat this a couple of times (in this case 10 times), take the average of the prediction. 
 Metric is Accuracy because it is a classification problem. Why not use Kappa? Kappa is a more usefull measure to use on problems that have an imbalance in the classes. Which in this case we don't have. 
 RMSE and R^2 are default metrics used to evaluate algorithms on regession datasets but we have a classification dataset so we don't use these measures. 
-Area under ROC curve metrix are only suitable for binary classification problems (two classes)
-
+Area under ROC curve metrix are only suitable for binary classification problems (two classes). 
+Later I will also use the logless metric and see if we get the same results. 
 
 ```{r, warning=FALSE}
 library(e1071)
@@ -152,10 +156,12 @@ modfitbag1 <- train(classe ~., data = training52, method="treebag", trControl=tr
 print(modfitbag1$results)
 ```
 
-
+### Out of sample error
 The accuraracy of this model is about 98%, on the trainset of course.
-This means we could be overfitting but I expect the accurracy on the testset should be about 95%. Which means that this model will probably have 1 of the 20 wrong. 
+This means we could be overfitting but I expect the accurracy on the testset should be about 95%. Which means that this model will probably have 1 of the 20 predictions in the testset wrong. 
 I haven't split the trainingset to get a more accurate out of sample error. 
+I can't measure out of sample errors like RMSE because I don't have predictions on the testset.  
+
 
 To do the predictions we first need to setup the testset to have the same transformations. 
 
@@ -199,3 +205,20 @@ results <- data.frame("Participant"=testing$user_name, "Problem_id"=testing$prob
                       "Classe"=PredictClassTest)
 print(results)
 ```
+
+Other model which I made was based on the logloss metric. This metric punishes 'wrong' predictions. 
+```{r, warning=FALSE}
+trCtrl <- trainControl(method = "cv", number = 10, classProbs=TRUE, summaryFunction=mnLogLoss) ## k-fold Cross Validation
+modfitbag1ll <- train(classe ~., data = training52, method="treebag", trControl=trCtrl, metric="logLoss") 
+print(modfitbag1ll)
+```
+
+This model gets the same results for the prediction on the testset. 
+```{r}
+PredictClassTestll <- predict(modfitbag1ll, testing9)
+
+resultsll <- data.frame("Participant"=testing$user_name, "Problem_id"=testing$problem_id, 
+                      "Classe"=PredictClassTestll)
+print(resultsll)
+```
+
